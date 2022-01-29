@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<script type="text/javascript">
+
+var file_name = '{{ file_name }}'
+ 
+function xml_http_post(url, data, done_cb) {
+    var req = new XMLHttpRequest();
+    req.open("POST", url, true);
+    req.onload = function() { done_cb(req.responseText); }
+    req.send(data);
+}
+
+var mtime = 0;
+function check_mtime() {
+    function cb(new_mtime) {
+        if(new_mtime != mtime) {
+            mtime = new_mtime;
+            do_reload();
+        }
+    }
+    xml_http_post(file_name, 'mtime', cb);
+}
+
+function do_reload() {
+    function cb(html) {
+        document.getElementById("markdown").innerHTML = html;
+    }
+    xml_http_post(file_name, 'markdown', cb);
+}
+
+setInterval(check_mtime, 250)
+
+</script>
+{{ style }}
+</html>
