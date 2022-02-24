@@ -1,14 +1,16 @@
 #! /usr/bin/env python3
 
 import argparse
-import time
 import http.server
 import jinja2
+import json
 import mistune
 import os
+import simple_websocket_server
 import socketserver
+import threading
 
-class ReqHandler(http.server.SimpleHTTPRequestHandler):
+class HTTPReqHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         base, ext = os.path.splitext(self.path)
         if ext != '.md':
@@ -23,31 +25,21 @@ class ReqHandler(http.server.SimpleHTTPRequestHandler):
             template = jinja2.Environment(loader=jinja2.BaseLoader).from_string(file.read())
         with open(expath + f'/style-{args.style}.html') as file:
             style_text = file.read()
-        self.wfile.write(template.render(style=style_text, file_name=self.path).encode('utf-8'))
+        self.wfile.write(template.render(style=style_text, file_name=self.path, ws_port=websocket_port).encode('utf-8'))
 
-    def do_POST(self):
-        data_len = int(self.headers.get_all('content-length')[0])
-        data = self.rfile.read(data_len)
-        path = self.directory + self.path
+class TCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    pass
 
-        if data == b'mtime':
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
+class WebSocket(simple_websocket_server.WebSocket):
+    def handle(self):
+        request = json.loads(self.data)
 
-            self.wfile.write(str(os.stat(path).st_mtime).encode('utf-8'))
-
-        elif data == b'markdown':
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-
-            with open(path) as file:
+        if request['type'] == 'mtime':
+            self.send_message(json.dumps({'type': 'mtime', 'time': os.stat(root_path + request['path']).st_mtime}))
+        if request['type'] == 'markdown':
+            with open(root_path + request['path']) as file:
                 html = mistune.html(file.read())
-            self.wfile.write(bytes(html, 'utf-8'))
-
-        else:
-            self.send_response(400)
+            self.send_message(json.dumps({'type': 'markdown', 'html': html}))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -55,7 +47,31 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--style', choices=['none', 'github'], default='github')
     args = parser.parse_args()
 
-    handler = ReqHandler
-    with socketserver.TCPServer(("", args.port), handler) as httpd:
-        print('Serving on: localhost:{}'.format(args.port))
-        httpd.serve_forever()
+    root_path = os.getcwd()
+    print('path:', root_path)
+
+    def serve(port, serve_call):
+        while True:
+            try:
+                server = serve_call(port)
+                return server, port
+            except OSError:
+                print('failed binding port:', port)
+            port += 1
+
+    websocket_server, websocket_port = serve(args.port, lambda port: simple_websocket_server.WebSocketServer('', port, WebSocket))
+    print('websocket port:', websocket_port)
+
+    http_server, http_port = serve(websocket_port + 1, lambda port: TCPServer(('', port), HTTPReqHandler))
+    print('http port:     ', http_port)
+
+    with http_server:
+        http_server_thread = threading.Thread(target=http_server.serve_forever)
+        http_server_thread.daemon = True
+        http_server_thread.start()
+
+        websocket_server.serve_forever()
+
+        http_server.shutdown()
+
+

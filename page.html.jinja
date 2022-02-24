@@ -2,31 +2,24 @@
 <html>
 <script type="text/javascript">
 
-var file_name = '{{ file_name }}'
- 
-function xml_http_post(url, data, done_cb) {
-    var req = new XMLHttpRequest();
-    req.open("POST", url, true);
-    req.onload = function() { done_cb(req.responseText); }
-    req.send(data);
-}
+var ws_port = '{{ ws_port }}'
+var socket = new WebSocket(`ws://${window.location.hostname}:${ws_port}/${window.location.pathname}`)
 
 var mtime = 0;
-function check_mtime() {
-    function cb(new_mtime) {
-        if(new_mtime != mtime) {
-            mtime = new_mtime;
-            do_reload();
-        }
-    }
-    xml_http_post(file_name, 'mtime', cb);
-}
 
-function do_reload() {
-    function cb(html) {
-        document.getElementById("markdown").innerHTML = html;
+socket.onmessage = function(event) {
+    var resp = JSON.parse(event.data)
+
+    if (resp.type == 'mtime' && resp.time != mtime) {
+        mtime = resp.time;
+        socket.send(JSON.stringify({type: 'markdown', path: window.location.pathname}))
+    } else if(resp.type == 'markdown') {
+        document.getElementById("markdown").innerHTML = resp.html;
     }
-    xml_http_post(file_name, 'markdown', cb);
+};
+
+function check_mtime() {
+    socket.send(JSON.stringify({type: 'mtime', path: window.location.pathname}))
 }
 
 setInterval(check_mtime, 250)
