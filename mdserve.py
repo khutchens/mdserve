@@ -1,12 +1,12 @@
 #! /usr/bin/env python3
 
 import argparse
-import os
 import time
 import http.server
-import socketserver
-import mistune
 import jinja2
+import mistune
+import os
+import socketserver
 
 class ReqHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
